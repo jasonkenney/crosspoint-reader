@@ -139,6 +139,9 @@ class BaseTheme {
                         const std::function<UIIcon(int index)>& rowIcon = nullptr,
                         const std::function<std::string(int index)>& rowValue = nullptr,
                         bool highlightValue = false) const;
+  virtual void drawThumbnailGrid(const GfxRenderer& renderer, Rect rect, int itemCount, int selectedIndex,
+                                 const std::function<std::string(int index)>& rowTitle,
+                                 const std::function<std::string(int index)>& coverBmpPath = nullptr) const;
   virtual void drawHeader(const GfxRenderer& renderer, Rect rect, const char* title,
                           const char* subtitle = nullptr) const;
   virtual void drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label,

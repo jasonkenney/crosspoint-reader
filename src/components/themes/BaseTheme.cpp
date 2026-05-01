@@ -304,6 +304,105 @@ void BaseTheme::drawList(const GfxRenderer& renderer, Rect rect, int itemCount, 
   }
 }
 
+void BaseTheme::drawThumbnailGrid(const GfxRenderer& renderer, Rect rect, int itemCount, int selectedIndex,
+                                  const std::function<std::string(int index)>& rowTitle,
+                                  const std::function<std::string(int index)>& coverBmpPath) const {
+  if (itemCount <= 0) return;
+
+  constexpr int padding = 6;
+  const int numCols = (rect.width >= 600) ? 4 : 3;
+  const int cellWidth = (rect.width - padding * (numCols + 1)) / numCols;
+
+  const int titleLineHeight = renderer.getLineHeight(UI_10_FONT_ID);
+  const int titleAreaHeight = titleLineHeight * 2 + padding;
+
+  // Cap cover height to guarantee at least 2 rows fit in the available rect height
+  const int maxCoverFor2Rows = (rect.height - padding * 3) / 2 - titleAreaHeight;
+  const int idealCoverHeight = cellWidth * 14 / 10;
+  const int rawCoverHeight = (idealCoverHeight < maxCoverFor2Rows) ? idealCoverHeight : maxCoverFor2Rows;
+  const int coverHeight = rawCoverHeight > 20 ? rawCoverHeight : 20;
+  const int cellHeight = coverHeight + titleAreaHeight;
+
+  const int numRows = (rect.height - padding) / (cellHeight + padding);
+  const int itemsPerPage = numRows * numCols;
+  if (itemsPerPage <= 0) return;
+
+  // Draw page navigation arrows when there are multiple pages
+  const int totalPages = (itemCount + itemsPerPage - 1) / itemsPerPage;
+  if (totalPages > 1) {
+    constexpr int arrowSize = 6;
+    constexpr int margin = 10;
+    const int centerX = rect.x + rect.width - margin;
+    const int indicatorTop = rect.y;
+    const int indicatorBottom = rect.y + rect.height - arrowSize;
+
+    for (int i = 0; i < arrowSize; ++i) {
+      const int lineWidth = 1 + i * 2;
+      renderer.drawLine(centerX - i, indicatorTop + i, centerX - i + lineWidth - 1, indicatorTop + i);
+    }
+    for (int i = 0; i < arrowSize; ++i) {
+      const int lineWidth = 1 + (arrowSize - 1 - i) * 2;
+      renderer.drawLine(centerX - (arrowSize - 1 - i), indicatorBottom - arrowSize + 1 + i,
+                        centerX - (arrowSize - 1 - i) + lineWidth - 1, indicatorBottom - arrowSize + 1 + i);
+    }
+  }
+
+  const int pageStartIndex = (selectedIndex / itemsPerPage) * itemsPerPage;
+
+  for (int i = pageStartIndex; i < itemCount && i < pageStartIndex + itemsPerPage; i++) {
+    const int posInPage = i - pageStartIndex;
+    const int col = posInPage % numCols;
+    const int row = posInPage / numCols;
+
+    const int cellX = rect.x + padding + col * (cellWidth + padding);
+    const int cellY = rect.y + padding + row * (cellHeight + padding);
+    const bool isSelected = (i == selectedIndex);
+
+    // Attempt to draw cover BMP
+    bool hasCover = false;
+    if (coverBmpPath) {
+      const std::string bmpPath = coverBmpPath(i);
+      if (!bmpPath.empty()) {
+        FsFile file;
+        if (Storage.openFileForRead("THUMB", bmpPath, file)) {
+          Bitmap bitmap(file);
+          if (bitmap.parseHeaders() == BmpReaderError::Ok) {
+            renderer.drawBitmap(bitmap, cellX, cellY, cellWidth, coverHeight);
+            hasCover = true;
+          }
+          file.close();
+        }
+      }
+    }
+
+    renderer.drawRect(cellX, cellY, cellWidth, coverHeight);
+
+    const std::string title = rowTitle(i);
+
+    if (!hasCover) {
+      // Text-only tile: title centred inside the cover area (title card style)
+      auto lines = renderer.wrappedText(UI_10_FONT_ID, title.c_str(), cellWidth - padding * 2, 4);
+      int textY = cellY + (coverHeight - static_cast<int>(lines.size()) * titleLineHeight) / 2;
+      for (const auto& line : lines) {
+        const int textW = renderer.getTextWidth(UI_10_FONT_ID, line.c_str());
+        const int textX = cellX + (cellWidth - textW) / 2;
+        renderer.drawText(UI_10_FONT_ID, textX, textY, line.c_str());
+        textY += titleLineHeight;
+      }
+    } else {
+      // Cover image tile: short title label below the image
+      const int titleY = cellY + coverHeight + padding / 2;
+      const auto titleStr = renderer.truncatedText(UI_10_FONT_ID, title.c_str(), cellWidth - 2);
+      renderer.drawText(UI_10_FONT_ID, cellX + 1, titleY, titleStr.c_str(), !isSelected);
+    }
+
+    // Selection highlight: thick border around the whole cell
+    if (isSelected) {
+      renderer.drawRect(cellX - 1, cellY - 1, cellWidth + 2, cellHeight + 2, 2, true);
+    }
+  }
+}
+
 void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle) const {
   // Hide last battery draw
   constexpr int maxBatteryWidth = 80;

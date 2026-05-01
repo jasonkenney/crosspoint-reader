@@ -11,6 +11,7 @@
 #include "../util/ConfirmationActivity.h"
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "RecentBooksStore.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -279,6 +280,19 @@ std::string getFileExtension(std::string filename) {
   return filename.substr(pos);
 }
 
+namespace {
+// Resolve a cover BMP path for a file, using the RecentBooksStore as a cache.
+// Returns the resolved path (with height substituted) or empty if not available.
+std::string getCoverPathForFile(const std::string& fullPath, int coverHeight) {
+  for (const auto& book : RECENT_BOOKS.getBooks()) {
+    if (book.path == fullPath && !book.coverBmpPath.empty()) {
+      return UITheme::getCoverThumbPath(book.coverBmpPath, coverHeight);
+    }
+  }
+  return "";
+}
+}  // namespace
+
 void FileBrowserActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
@@ -292,11 +306,27 @@ void FileBrowserActivity::render(RenderLock&&) {
   const int pathLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
   const int pathReserved = pathLineHeight + metrics.verticalSpacing;
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int contentHeight =
-      pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing - pathReserved;
+
+  const bool thumbnailMode = (SETTINGS.browserView == CrossPointSettings::BROWSER_THUMBNAIL);
+
   if (files.empty()) {
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20, tr(STR_NO_FILES_FOUND));
+  } else if (thumbnailMode) {
+    const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
+    // Pre-build the clean base path once (avoids repeated concatenation inside the lambda)
+    std::string cleanBase = basepath;
+    if (cleanBase.back() != '/') cleanBase += '/';
+    const int coverHeight = metrics.homeCoverHeight;
+    GUI.drawThumbnailGrid(
+        renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(files.size()), selectorIndex,
+        [this](int index) { return getFileName(files[index]); },
+        [this, &cleanBase, coverHeight](int index) {
+          if (files[index].back() == '/') return std::string{};
+          return getCoverPathForFile(cleanBase + files[index], coverHeight);
+        });
   } else {
+    const int contentHeight =
+        pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing - pathReserved;
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, files.size(), selectorIndex,
         [this](int index) { return getFileName(files[index]); }, nullptr,
@@ -304,13 +334,12 @@ void FileBrowserActivity::render(RenderLock&&) {
         [this](int index) { return getFileExtension(files[index]); }, false);
   }
 
-  // Full path display
-  {
+  // Full path display (list mode only — thumbnail mode uses the full height)
+  if (!thumbnailMode) {
     const int pathY = pageHeight - metrics.buttonHintsHeight - metrics.verticalSpacing - pathLineHeight;
     const int separatorY = pathY - metrics.verticalSpacing / 2;
     renderer.drawLine(0, separatorY, pageWidth - 1, separatorY, 3, true);
     const int pathMaxWidth = pageWidth - metrics.contentSidePadding * 2;
-    // Left-truncate so the deepest directory is always visible
     const char* pathStr = basepath.c_str();
     const char* pathDisplay = pathStr;
     char leftTruncBuf[256];
@@ -318,7 +347,6 @@ void FileBrowserActivity::render(RenderLock&&) {
       const char ellipsis[] = "\xe2\x80\xa6";  // UTF-8 ellipsis (…)
       const int ellipsisWidth = renderer.getTextWidth(SMALL_FONT_ID, ellipsis);
       const int available = pathMaxWidth - ellipsisWidth;
-      // Walk forward from the start until the suffix fits, skipping UTF-8 continuation bytes
       const char* p = pathStr;
       while (*p) {
         if (renderer.getTextWidth(SMALL_FONT_ID, p) <= available) break;

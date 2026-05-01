@@ -94,9 +94,17 @@ void RecentBooksActivity::render(RenderLock&&) {
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
 
-  // Recent tab
   if (recentBooks.empty()) {
     renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, contentTop + 20, tr(STR_NO_RECENT_BOOKS));
+  } else if (SETTINGS.browserView == CrossPointSettings::BROWSER_THUMBNAIL) {
+    const int coverHeight = metrics.homeCoverHeight;
+    GUI.drawThumbnailGrid(
+        renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(recentBooks.size()), selectorIndex,
+        [this](int index) { return recentBooks[index].title; },
+        [this, coverHeight](int index) {
+          if (recentBooks[index].coverBmpPath.empty()) return std::string{};
+          return UITheme::getCoverThumbPath(recentBooks[index].coverBmpPath, coverHeight);
+        });
   } else {
     GUI.drawList(
         renderer, Rect{0, contentTop, pageWidth, contentHeight}, recentBooks.size(), selectorIndex,
